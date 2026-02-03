@@ -4,7 +4,8 @@ project(pc-control C)
 set(CMAKE_C_STANDARD 11)
 
 # Find Paho MQTT C library
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/../paho.mqtt.c/install")
+set(PAHO_INSTALL_DIR "${CMAKE_SOURCE_DIR}/../paho.mqtt.c/install" CACHE PATH "Paho MQTT C install directory")
+list(APPEND CMAKE_PREFIX_PATH "${PAHO_INSTALL_DIR}")
 find_package(eclipse-paho-mqtt-c REQUIRED)
 
 # Common link libraries for static build

@@ -1,0 +1,78 @@
+name: Build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install MinGW
+        run: choco install mingw --yes --no-progress
+
+      - name: Clone Paho MQTT C
+        run: git clone --depth 1 https://github.com/eclipse-paho/paho.mqtt.c.git paho.mqtt.c
+
+      - name: Build Paho MQTT C
+        run: |
+          cmake -B paho.mqtt.c/build -S paho.mqtt.c -G "MinGW Makefiles" `
+            -DCMAKE_C_COMPILER="C:/ProgramData/mingw64/mingw64/bin/gcc.exe" `
+            -DCMAKE_MAKE_PROGRAM="C:/ProgramData/mingw64/mingw64/bin/mingw32-make.exe" `
+            -DCMAKE_INSTALL_PREFIX="paho.mqtt.c/install" `
+            -DPAHO_BUILD_STATIC=TRUE `
+            -DPAHO_BUILD_SHARED=FALSE `
+            -DPAHO_WITH_SSL=FALSE `
+            -DPAHO_BUILD_SAMPLES=FALSE `
+            -DPAHO_BUILD_DOCUMENTATION=FALSE
+          C:/ProgramData/mingw64/mingw64/bin/mingw32-make.exe -C paho.mqtt.c/build -j2
+          C:/ProgramData/mingw64/mingw64/bin/mingw32-make.exe -C paho.mqtt.c/build install
+
+      - name: Build pc-control
+        run: |
+          cmake -B build -G "MinGW Makefiles" `
+            -DCMAKE_C_COMPILER="C:/ProgramData/mingw64/mingw64/bin/gcc.exe" `
+            -DCMAKE_MAKE_PROGRAM="C:/ProgramData/mingw64/mingw64/bin/mingw32-make.exe" `
+            -DPAHO_INSTALL_DIR="${{ github.workspace }}/paho.mqtt.c/install"
+          C:/ProgramData/mingw64/mingw64/bin/mingw32-make.exe -C build -j2
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc-control
+          path: |
+            build/pc-control.exe
+            build/pc-control-hidden.exe
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pc-control
+          path: artifacts
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            artifacts/pc-control.exe \
+            artifacts/pc-control-hidden.exe \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
