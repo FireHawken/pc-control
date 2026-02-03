@@ -168,3 +168,11 @@ Commands are logged to `pc-control.log` in the working directory with timestamps
 ## Authors
 
 * Original creator: [Artur Brynka](https://github.com/FireHawken)
+
+## Version history
+
+| Version | Date       | Notes                                                                                                          |
+|---------|------------|---------------------------------------------------------------------------------------------------------------|
+| 1.1.0   | 02.03.2026 | Add new, separate "invisible" executable and statically link paho-mqtt, so only 1 file is required for distribution |
+| 1.0.1   | 02.02.2026 | Add logging to file, improved Home Assistant support, status topic (`online`/`offline`) via LWT, monitor off command. |
+| 1.0.0   | 01.02.2026 | Initial release                          |
