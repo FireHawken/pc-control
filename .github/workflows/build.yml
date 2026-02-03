@@ -30,7 +30,8 @@ jobs:
             -DPAHO_BUILD_SHARED=FALSE `
             -DPAHO_WITH_SSL=FALSE `
             -DPAHO_BUILD_SAMPLES=FALSE `
-            -DPAHO_BUILD_DOCUMENTATION=FALSE
+            -DPAHO_BUILD_DOCUMENTATION=FALSE `
+            -DPAHO_ENABLE_TESTING=FALSE
           C:/ProgramData/mingw64/mingw64/bin/mingw32-make.exe -C paho.mqtt.c/build -j2
           C:/ProgramData/mingw64/mingw64/bin/mingw32-make.exe -C paho.mqtt.c/build install
 
