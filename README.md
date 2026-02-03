@@ -57,17 +57,19 @@ cmake -B build -G "MinGW Makefiles" ^
 
 # Build
 mingw32-make -C build
-
-# Copy required DLL
-copy ..\paho.mqtt.c\install\bin\libpaho-mqtt3c.dll build\
 ```
 
-The executable will be at `build/pc-control.exe`.
+The build produces two standalone executables in `build/` (no DLLs required):
+
+| Executable | Description |
+|------------|-------------|
+| `pc-control.exe` | Console app - shows output in terminal |
+| `pc-control-hidden.exe` | GUI app - completely invisible, no window |
 
 ## Usage
 
 ```bash
-pc-control.exe [--hide] <broker_ip> <username> <password> [port] [hostname]
+pc-control.exe <broker_ip> <username> <password> [port] [hostname]
 ```
 
 | Argument | Required | Default | Description |
@@ -77,10 +79,6 @@ pc-control.exe [--hide] <broker_ip> <username> <password> [port] [hostname]
 | password | Yes | - | MQTT password |
 | port | No | 1883 | MQTT broker port |
 | hostname | No | System hostname | Device name used in topics |
-
-| Option | Description |
-|--------|-------------|
-| `--hide` | Hide console window (for background/autostart use) |
 
 Examples:
 ```bash
@@ -93,23 +91,25 @@ pc-control.exe 192.168.1.100 myuser mypassword 1884
 # Custom port and hostname
 pc-control.exe 192.168.1.100 myuser mypassword 1883 gaming-pc
 
-# Run hidden (no console window)
-pc-control.exe --hide 192.168.1.100 myuser mypassword
+# Run completely hidden (no window at all)
+pc-control-hidden.exe 192.168.1.100 myuser mypassword
 ```
 
 ## Autostart (Run at Login)
 
-To run pc-control automatically when you log in:
+Use `pc-control-hidden.exe` for completely invisible background operation:
 
-1. Create a shortcut to `pc-control.exe`
+1. Create a shortcut to `pc-control-hidden.exe`
 2. Right-click → Properties → Target:
    ```
-   "C:\path\to\pc-control.exe" --hide 192.168.1.100 myuser mypassword
+   "C:\path\to\pc-control-hidden.exe" 192.168.1.100 myuser mypassword
    ```
 3. Press `Win+R`, type `shell:startup`, press Enter
 4. Move the shortcut to the Startup folder
 
-The `--hide` flag hides the console window so it runs silently in the background.
+The hidden version runs with no window, no flash, and no taskbar entry.
+
+Check `pc-control.log` in the working directory to verify it's running.
 
 ## MQTT Topics
 

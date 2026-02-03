@@ -91,12 +91,32 @@ static int message_arrived(void *context, char *topic, int topic_len, MQTTClient
 static void connection_lost(void *context, char *cause) {
     (void)context;
     connected = 0;
+#ifndef HIDDEN_BUILD
     fprintf(stderr, "Connection lost: %s\n", cause ? cause : "unknown");
+#endif
     log_action("MQTT connection lost");
 }
 
 static BOOL WINAPI console_handler(DWORD signal) {
-    if (signal == CTRL_C_EVENT || signal == CTRL_BREAK_EVENT) {
+    switch (signal) {
+    case CTRL_C_EVENT:
+        log_action("Received CTRL_C signal");
+        running = 0;
+        return TRUE;
+    case CTRL_BREAK_EVENT:
+        log_action("Received CTRL_BREAK signal");
+        running = 0;
+        return TRUE;
+    case CTRL_CLOSE_EVENT:
+        log_action("Console window closed");
+        running = 0;
+        return TRUE;
+    case CTRL_LOGOFF_EVENT:
+        log_action("User logoff detected");
+        running = 0;
+        return TRUE;
+    case CTRL_SHUTDOWN_EVENT:
+        log_action("System shutdown detected");
         running = 0;
         return TRUE;
     }
@@ -196,7 +216,7 @@ int main(int argc, char *argv[]) {
 
     /* Parse arguments: separate flags from positional args */
     for (int i = 1; i < argc && pos_argc < 6; i++) {
-        if (strcmp(argv[i], "--hide") == 0 || strcmp(argv[i], "-h") == 0) {
+        if (strcmp(argv[i], "--hide") == 0) {
             hide_console = 1;
         } else if (is_flag(argv[i])) {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
