@@ -12,7 +12,7 @@ Minimalistic Windows 11 command-line tool for remote PC power management via MQT
 
 ## Dependencies
 
-- [Paho MQTT C Client](https://github.com/eclipse/paho.mqtt.c)
+- [Paho MQTT C Client](https://github.com/eclipse-paho/paho.mqtt.c)
 - CMake 3.16+
 - MinGW-w64
 
@@ -29,7 +29,7 @@ choco install cmake mingw -y
 
 ```bash
 # Clone the library (next to pc-control directory)
-git clone https://github.com/eclipse/paho.mqtt.c.git ../paho.mqtt.c
+git clone https://github.com/eclipse-paho/paho.mqtt.c.git ../paho.mqtt.c
 
 # Configure with MinGW (adjust paths if MinGW is installed elsewhere)
 cmake -B ../paho.mqtt.c/build -S ../paho.mqtt.c -G "MinGW Makefiles" ^
@@ -69,7 +69,7 @@ The build produces two standalone executables in `build/` (no DLLs required):
 ## Usage
 
 ```bash
-pc-control.exe <broker_ip> <username> <password> [port] [hostname]
+pc-control.exe [--hide] <broker_ip> <username> <password> [port] [hostname]
 ```
 
 | Argument | Required | Default | Description |
@@ -79,6 +79,8 @@ pc-control.exe <broker_ip> <username> <password> [port] [hostname]
 | password | Yes | - | MQTT password |
 | port | No | 1883 | MQTT broker port |
 | hostname | No | System hostname | Device name used in topics |
+
+`--hide` hides the console window after startup. For autostart, prefer `pc-control-hidden.exe`.
 
 Examples:
 ```bash
@@ -165,6 +167,23 @@ Commands are logged to `pc-control.log` in the working directory with timestamps
 [2026-02-01 16:05:01] MONITOR_OFF command received - turning off monitor
 [2026-02-01 16:10:15] SLEEP command received - entering sleep mode
 ```
+## CI/CD & Releasing
+
+The project uses GitHub Actions to build and release automatically.
+
+**On every PR to `main`:** both executables are built and uploaded as artifacts for testing.
+
+**To release a new version:**
+
+1. Update `VERSION` in `src/main.c`
+2. Work on a feature branch, open a PR, and merge to `main`
+3. Tag the merge commit and push the tag:
+   ```bash
+   git tag v1.2.0
+   git push origin v1.2.0
+   ```
+4. GitHub Actions builds and creates a [Release](../../releases) with both `.exe` files attached
+
 ## Authors
 
 * Original creator: [Artur Brynka](https://github.com/FireHawken)
