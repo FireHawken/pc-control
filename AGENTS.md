@@ -60,7 +60,7 @@ Features:
 - Birth messages: publishes `online` status and version on connect
 - Automatic reconnection with exponential backoff (1s to 30s)
 - Hostname sanitization (lowercase, special chars handled)
-- Windows API calls: `SetSuspendState()` for sleep, `SendMessage(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2)` for monitor off
+- Windows API calls: `SetSuspendState()` for sleep, `SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2, ...)` for monitor off
 - Simple file-based logging with timestamps
 
 ## Version
@@ -70,7 +70,7 @@ Update `VERSION` define in `src/main.c` when releasing.
 ## Key Windows APIs
 
 - `SetSuspendState(FALSE, FALSE, FALSE)` - Sleep mode (requires linking `powrprof.lib`)
-- `SendMessage` with `SC_MONITORPOWER` - Monitor power control
+- `SendMessageTimeout` with `SC_MONITORPOWER` - Monitor power control with timeout
 
 ## Build Notes
 

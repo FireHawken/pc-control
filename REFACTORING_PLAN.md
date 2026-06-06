@@ -30,4 +30,5 @@ Improve stability and reliability of `pc-control` while keeping the tool small a
 - Done: item 1, command execution now happens in the main loop.
 - Done: item 2, shared runtime flags now use Windows `Interlocked*` helpers.
 - Done: item 3, command messages now require explicit payloads and retained command messages are ignored.
-- Current: item 4, add timeouts and error logging around Windows power APIs.
+- Done: item 4, Windows power API calls now have timeout/failure logging.
+- Current: item 5, make status publishing more deterministic.

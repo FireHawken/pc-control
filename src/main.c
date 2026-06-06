@@ -15,6 +15,7 @@
 #define LOG_FILE "pc-control.log"
 #define RECONNECT_DELAY_BASE_MS 1000
 #define RECONNECT_DELAY_MAX_MS 30000
+#define MONITOR_POWER_TIMEOUT_MS 2000
 #define MAX_HOSTNAME_LEN 256
 #define MAX_TOPIC_LEN 512
 
@@ -69,6 +70,19 @@ static void log_action(const char *action) {
     }
 }
 
+static void log_windows_error(const char *action, DWORD error_code) {
+    char msg[256];
+
+    if (error_code == ERROR_SUCCESS) {
+        snprintf(msg, sizeof(msg), "%s failed or timed out", action);
+    } else {
+        snprintf(msg, sizeof(msg), "%s failed with GetLastError=%lu",
+                 action, (unsigned long)error_code);
+    }
+
+    log_action(msg);
+}
+
 static void sanitize_hostname(char *dest, const char *src, size_t dest_size) {
     size_t j = 0;
     for (size_t i = 0; src[i] && j < dest_size - 1; i++) {
@@ -93,12 +107,20 @@ static int get_system_hostname(char *buf, size_t buf_size) {
 
 static void do_sleep(void) {
     log_action("SLEEP command received - entering sleep mode");
-    SetSuspendState(FALSE, FALSE, FALSE);
+    if (!SetSuspendState(FALSE, FALSE, FALSE)) {
+        log_windows_error("SetSuspendState", GetLastError());
+    }
 }
 
 static void do_monitor_off(void) {
+    DWORD_PTR result = 0;
+
     log_action("MONITOR_OFF command received - turning off monitor");
-    SendMessage(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
+    SetLastError(ERROR_SUCCESS);
+    if (SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, (LPARAM)2,
+                           SMTO_ABORTIFHUNG, MONITOR_POWER_TIMEOUT_MS, &result) == 0) {
+        log_windows_error("SendMessageTimeout(SC_MONITORPOWER)", GetLastError());
+    }
 }
 
 static void queue_command(LONG command) {
