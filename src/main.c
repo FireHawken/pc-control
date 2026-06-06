@@ -21,8 +21,13 @@
 #define STATUS_ONLINE "online"
 #define STATUS_OFFLINE "offline"
 
+#define COMMAND_NONE 0
+#define COMMAND_SLEEP 0x1
+#define COMMAND_MONITOR_OFF 0x2
+
 static volatile int running = 1;
 static volatile int connected = 0;
+static volatile LONG pending_commands = COMMAND_NONE;
 static char topic_sleep[MAX_TOPIC_LEN];
 static char topic_monitor_off[MAX_TOPIC_LEN];
 static char topic_status[MAX_TOPIC_LEN];
@@ -72,15 +77,29 @@ static void do_monitor_off(void) {
     SendMessage(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
 }
 
+static void queue_command(LONG command) {
+    InterlockedOr(&pending_commands, command);
+}
+
+static void process_pending_commands(void) {
+    LONG commands = InterlockedExchange(&pending_commands, COMMAND_NONE);
+
+    if ((commands & COMMAND_SLEEP) != 0) {
+        do_sleep();
+    } else if ((commands & COMMAND_MONITOR_OFF) != 0) {
+        do_monitor_off();
+    }
+}
+
 static int message_arrived(void *context, char *topic, int topic_len, MQTTClient_message *msg) {
     (void)context;
     (void)topic_len;
     (void)msg;
 
     if (strcmp(topic, topic_sleep) == 0) {
-        do_sleep();
+        queue_command(COMMAND_SLEEP);
     } else if (strcmp(topic, topic_monitor_off) == 0) {
-        do_monitor_off();
+        queue_command(COMMAND_MONITOR_OFF);
     }
 
     MQTTClient_freeMessage(&msg);
@@ -314,6 +333,8 @@ int main(int argc, char *argv[]) {
     int reconnect_delay = RECONNECT_DELAY_BASE_MS;
 
     while (running) {
+        process_pending_commands();
+
         if (!connected) {
             rc = try_connect(client, &conn_opts, address);
             if (rc != MQTTCLIENT_SUCCESS) {
