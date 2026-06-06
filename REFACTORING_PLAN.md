@@ -25,6 +25,7 @@ Improve stability and reliability of `pc-control` while keeping the tool small a
    - Validate broker address/port and check `snprintf` truncation.
    - Enable compiler warnings in CMake/CI.
 
-## Current Step
+## Progress
 
-Implement item 1: move command execution from `message_arrived` to the main loop.
+- Done: item 1, command execution now happens in the main loop.
+- Current: item 2, replace shared `volatile` state with thread-safe synchronization.

@@ -25,14 +25,38 @@
 #define COMMAND_SLEEP 0x1
 #define COMMAND_MONITOR_OFF 0x2
 
-static volatile int running = 1;
-static volatile int connected = 0;
+static volatile LONG running = 1;
+static volatile LONG connected = 0;
 static volatile LONG pending_commands = COMMAND_NONE;
 static char topic_sleep[MAX_TOPIC_LEN];
 static char topic_monitor_off[MAX_TOPIC_LEN];
 static char topic_status[MAX_TOPIC_LEN];
 static char topic_version[MAX_TOPIC_LEN];
 static char client_id[MAX_HOSTNAME_LEN + 32];
+
+static int read_flag(volatile LONG *flag) {
+    return InterlockedCompareExchange(flag, 0, 0) != 0;
+}
+
+static void write_flag(volatile LONG *flag, LONG value) {
+    InterlockedExchange(flag, value);
+}
+
+static int is_running(void) {
+    return read_flag(&running);
+}
+
+static void request_stop(void) {
+    write_flag(&running, 0);
+}
+
+static int is_connected(void) {
+    return read_flag(&connected);
+}
+
+static void set_connected(LONG value) {
+    write_flag(&connected, value);
+}
 
 static void log_action(const char *action) {
     FILE *f = fopen(LOG_FILE, "a");
@@ -109,7 +133,7 @@ static int message_arrived(void *context, char *topic, int topic_len, MQTTClient
 
 static void connection_lost(void *context, char *cause) {
     (void)context;
-    connected = 0;
+    set_connected(0);
 #ifndef HIDDEN_BUILD
     fprintf(stderr, "Connection lost: %s\n", cause ? cause : "unknown");
 #endif
@@ -120,23 +144,23 @@ static BOOL WINAPI console_handler(DWORD signal) {
     switch (signal) {
     case CTRL_C_EVENT:
         log_action("Received CTRL_C signal");
-        running = 0;
+        request_stop();
         return TRUE;
     case CTRL_BREAK_EVENT:
         log_action("Received CTRL_BREAK signal");
-        running = 0;
+        request_stop();
         return TRUE;
     case CTRL_CLOSE_EVENT:
         log_action("Console window closed");
-        running = 0;
+        request_stop();
         return TRUE;
     case CTRL_LOGOFF_EVENT:
         log_action("User logoff detected");
-        running = 0;
+        request_stop();
         return TRUE;
     case CTRL_SHUTDOWN_EVENT:
         log_action("System shutdown detected");
-        running = 0;
+        request_stop();
         return TRUE;
     }
     return FALSE;
@@ -195,7 +219,7 @@ static int try_connect(MQTTClient client, MQTTClient_connectOptions *conn_opts, 
         return rc;
     }
 
-    connected = 1;
+    set_connected(1);
     log_action("Connected to MQTT broker");
     printf("Connected to %s\n", address);
     printf("Status: %s -> %s\n", topic_status, STATUS_ONLINE);
@@ -332,16 +356,16 @@ int main(int argc, char *argv[]) {
 
     int reconnect_delay = RECONNECT_DELAY_BASE_MS;
 
-    while (running) {
+    while (is_running()) {
         process_pending_commands();
 
-        if (!connected) {
+        if (!is_connected()) {
             rc = try_connect(client, &conn_opts, address);
             if (rc != MQTTCLIENT_SUCCESS) {
                 fprintf(stderr, "Connection attempt failed (%d), retrying in %d ms...\n", rc, reconnect_delay);
 
                 int slept = 0;
-                while (running && slept < reconnect_delay) {
+                while (is_running() && slept < reconnect_delay) {
                     Sleep(100);
                     slept += 100;
                 }
@@ -360,7 +384,7 @@ int main(int argc, char *argv[]) {
     log_action("Shutting down");
 
     /* Publish offline status on graceful shutdown */
-    if (connected) {
+    if (is_connected()) {
         publish_retained(client, topic_status, STATUS_OFFLINE);
         MQTTClient_disconnect(client, 1000);
     }
