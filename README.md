@@ -119,10 +119,12 @@ Topics include the hostname to support multiple PCs:
 
 | Topic | Type | Description |
 |-------|------|-------------|
-| `pc-control/<hostname>/sleep` | Command | Put PC to sleep (send any message) |
-| `pc-control/<hostname>/monitor-off` | Command | Turn off monitor (send any message) |
+| `pc-control/<hostname>/sleep` | Command | Put PC to sleep (send `1`, `true`, `on`, or `yes`) |
+| `pc-control/<hostname>/monitor-off` | Command | Turn off monitor (send `1`, `true`, `on`, or `yes`) |
 | `pc-control/<hostname>/status` | Status | `online` / `offline` (retained) |
 | `pc-control/<hostname>/version` | Info | Version string, e.g. `1.0.0` (retained) |
+
+Retained messages on command topics are ignored to avoid accidental actions after reconnect.
 
 ### Status tracking (LWT)
 

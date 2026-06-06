@@ -115,15 +115,60 @@ static void process_pending_commands(void) {
     }
 }
 
+static int payload_token_equals(const char *payload, size_t payload_len, const char *token) {
+    size_t token_len = strlen(token);
+    if (payload_len != token_len) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < payload_len; i++) {
+        if (tolower((unsigned char)payload[i]) != token[i]) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static int is_valid_command_payload(const MQTTClient_message *msg) {
+    const char *payload;
+    size_t start = 0;
+    size_t end;
+
+    if (msg == NULL || msg->payload == NULL || msg->payloadlen <= 0) {
+        return 0;
+    }
+
+    payload = (const char *)msg->payload;
+    end = (size_t)msg->payloadlen;
+
+    while (start < end && isspace((unsigned char)payload[start])) {
+        start++;
+    }
+    while (end > start && isspace((unsigned char)payload[end - 1])) {
+        end--;
+    }
+
+    return payload_token_equals(payload + start, end - start, "1") ||
+           payload_token_equals(payload + start, end - start, "true") ||
+           payload_token_equals(payload + start, end - start, "on") ||
+           payload_token_equals(payload + start, end - start, "yes");
+}
+
+static int should_accept_command_message(const MQTTClient_message *msg) {
+    return msg != NULL && !msg->retained && is_valid_command_payload(msg);
+}
+
 static int message_arrived(void *context, char *topic, int topic_len, MQTTClient_message *msg) {
     (void)context;
     (void)topic_len;
-    (void)msg;
 
-    if (strcmp(topic, topic_sleep) == 0) {
-        queue_command(COMMAND_SLEEP);
-    } else if (strcmp(topic, topic_monitor_off) == 0) {
-        queue_command(COMMAND_MONITOR_OFF);
+    if (should_accept_command_message(msg)) {
+        if (strcmp(topic, topic_sleep) == 0) {
+            queue_command(COMMAND_SLEEP);
+        } else if (strcmp(topic, topic_monitor_off) == 0) {
+            queue_command(COMMAND_MONITOR_OFF);
+        }
     }
 
     MQTTClient_freeMessage(&msg);

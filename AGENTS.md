@@ -39,8 +39,8 @@ pc-control-hidden.exe <broker_ip> <username> <password> [port] [hostname]
 - `hostname` defaults to system hostname (used in topics and client ID)
 
 MQTT topics (hostname-based for multi-PC support):
-- `pc-control/<hostname>/sleep` - Put PC to sleep (command)
-- `pc-control/<hostname>/monitor-off` - Turn off monitor (command)
+- `pc-control/<hostname>/sleep` - Put PC to sleep (command payload: `1`, `true`, `on`, or `yes`; retained messages are ignored)
+- `pc-control/<hostname>/monitor-off` - Turn off monitor (command payload: `1`, `true`, `on`, or `yes`; retained messages are ignored)
 - `pc-control/<hostname>/status` - `online`/`offline` (retained, LWT)
 - `pc-control/<hostname>/version` - Version string (retained)
 

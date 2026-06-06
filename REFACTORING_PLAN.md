@@ -28,4 +28,6 @@ Improve stability and reliability of `pc-control` while keeping the tool small a
 ## Progress
 
 - Done: item 1, command execution now happens in the main loop.
-- Current: item 2, replace shared `volatile` state with thread-safe synchronization.
+- Done: item 2, shared runtime flags now use Windows `Interlocked*` helpers.
+- Done: item 3, command messages now require explicit payloads and retained command messages are ignored.
+- Current: item 4, add timeouts and error logging around Windows power APIs.
