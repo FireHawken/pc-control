@@ -18,7 +18,7 @@ jobs:
         run: choco install mingw --yes --no-progress
 
       - name: Clone Paho MQTT C
-        run: git clone --depth 1 https://github.com/eclipse-paho/paho.mqtt.c.git paho.mqtt.c
+        run: git clone --branch v1.3.15 --depth 1 https://github.com/eclipse-paho/paho.mqtt.c.git paho.mqtt.c
 
       - name: Build Paho MQTT C
         run: |

@@ -7,7 +7,8 @@
 #include <powrprof.h>
 #include <MQTTClient.h>
 
-#define VERSION "1.1.0"
+#include "version.h"
+
 #define TOPIC_PREFIX "pc-control"
 #define DEFAULT_PORT "1883"
 #define CLIENT_ID_PREFIX "pc-control-"
@@ -15,19 +16,49 @@
 #define LOG_FILE "pc-control.log"
 #define RECONNECT_DELAY_BASE_MS 1000
 #define RECONNECT_DELAY_MAX_MS 30000
+#define MONITOR_POWER_TIMEOUT_MS 2000
 #define MAX_HOSTNAME_LEN 256
 #define MAX_TOPIC_LEN 512
 
 #define STATUS_ONLINE "online"
 #define STATUS_OFFLINE "offline"
 
-static volatile int running = 1;
-static volatile int connected = 0;
+#define COMMAND_NONE 0
+#define COMMAND_SLEEP 0x1
+#define COMMAND_MONITOR_OFF 0x2
+
+static volatile LONG running = 1;
+static volatile LONG connected = 0;
+static volatile LONG pending_commands = COMMAND_NONE;
 static char topic_sleep[MAX_TOPIC_LEN];
 static char topic_monitor_off[MAX_TOPIC_LEN];
 static char topic_status[MAX_TOPIC_LEN];
 static char topic_version[MAX_TOPIC_LEN];
 static char client_id[MAX_HOSTNAME_LEN + 32];
+
+static int read_flag(volatile LONG *flag) {
+    return InterlockedCompareExchange(flag, 0, 0) != 0;
+}
+
+static void write_flag(volatile LONG *flag, LONG value) {
+    InterlockedExchange(flag, value);
+}
+
+static int is_running(void) {
+    return read_flag(&running);
+}
+
+static void request_stop(void) {
+    write_flag(&running, 0);
+}
+
+static int is_connected(void) {
+    return read_flag(&connected);
+}
+
+static void set_connected(LONG value) {
+    write_flag(&connected, value);
+}
 
 static void log_action(const char *action) {
     FILE *f = fopen(LOG_FILE, "a");
@@ -38,6 +69,25 @@ static void log_action(const char *action) {
         fprintf(f, "[%s] %s\n", timebuf, action);
         fclose(f);
     }
+}
+
+static void log_windows_error(const char *action, DWORD error_code) {
+    char msg[256];
+
+    if (error_code == ERROR_SUCCESS) {
+        snprintf(msg, sizeof(msg), "%s failed or timed out", action);
+    } else {
+        snprintf(msg, sizeof(msg), "%s failed with GetLastError=%lu",
+                 action, (unsigned long)error_code);
+    }
+
+    log_action(msg);
+}
+
+static void log_startup(void) {
+    char msg[128];
+    snprintf(msg, sizeof(msg), "pc-control v%s started", VERSION);
+    log_action(msg);
 }
 
 static void sanitize_hostname(char *dest, const char *src, size_t dest_size) {
@@ -64,23 +114,90 @@ static int get_system_hostname(char *buf, size_t buf_size) {
 
 static void do_sleep(void) {
     log_action("SLEEP command received - entering sleep mode");
-    SetSuspendState(FALSE, FALSE, FALSE);
+    if (!SetSuspendState(FALSE, FALSE, FALSE)) {
+        log_windows_error("SetSuspendState", GetLastError());
+    }
 }
 
 static void do_monitor_off(void) {
+    DWORD_PTR result = 0;
+
     log_action("MONITOR_OFF command received - turning off monitor");
-    SendMessage(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
+    SetLastError(ERROR_SUCCESS);
+    if (SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, (LPARAM)2,
+                           SMTO_ABORTIFHUNG, MONITOR_POWER_TIMEOUT_MS, &result) == 0) {
+        log_windows_error("SendMessageTimeout(SC_MONITORPOWER)", GetLastError());
+    }
+}
+
+static void queue_command(LONG command) {
+    InterlockedOr(&pending_commands, command);
+}
+
+static void process_pending_commands(void) {
+    LONG commands = InterlockedExchange(&pending_commands, COMMAND_NONE);
+
+    if ((commands & COMMAND_SLEEP) != 0) {
+        do_sleep();
+    } else if ((commands & COMMAND_MONITOR_OFF) != 0) {
+        do_monitor_off();
+    }
+}
+
+static int payload_token_equals(const char *payload, size_t payload_len, const char *token) {
+    size_t token_len = strlen(token);
+    if (payload_len != token_len) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < payload_len; i++) {
+        if (tolower((unsigned char)payload[i]) != token[i]) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static int is_valid_command_payload(const MQTTClient_message *msg) {
+    const char *payload;
+    size_t start = 0;
+    size_t end;
+
+    if (msg == NULL || msg->payload == NULL || msg->payloadlen <= 0) {
+        return 0;
+    }
+
+    payload = (const char *)msg->payload;
+    end = (size_t)msg->payloadlen;
+
+    while (start < end && isspace((unsigned char)payload[start])) {
+        start++;
+    }
+    while (end > start && isspace((unsigned char)payload[end - 1])) {
+        end--;
+    }
+
+    return payload_token_equals(payload + start, end - start, "1") ||
+           payload_token_equals(payload + start, end - start, "true") ||
+           payload_token_equals(payload + start, end - start, "on") ||
+           payload_token_equals(payload + start, end - start, "yes");
+}
+
+static int should_accept_command_message(const MQTTClient_message *msg) {
+    return msg != NULL && !msg->retained && is_valid_command_payload(msg);
 }
 
 static int message_arrived(void *context, char *topic, int topic_len, MQTTClient_message *msg) {
     (void)context;
     (void)topic_len;
-    (void)msg;
 
-    if (strcmp(topic, topic_sleep) == 0) {
-        do_sleep();
-    } else if (strcmp(topic, topic_monitor_off) == 0) {
-        do_monitor_off();
+    if (should_accept_command_message(msg)) {
+        if (strcmp(topic, topic_sleep) == 0) {
+            queue_command(COMMAND_SLEEP);
+        } else if (strcmp(topic, topic_monitor_off) == 0) {
+            queue_command(COMMAND_MONITOR_OFF);
+        }
     }
 
     MQTTClient_freeMessage(&msg);
@@ -90,7 +207,7 @@ static int message_arrived(void *context, char *topic, int topic_len, MQTTClient
 
 static void connection_lost(void *context, char *cause) {
     (void)context;
-    connected = 0;
+    set_connected(0);
 #ifndef HIDDEN_BUILD
     fprintf(stderr, "Connection lost: %s\n", cause ? cause : "unknown");
 #endif
@@ -101,23 +218,23 @@ static BOOL WINAPI console_handler(DWORD signal) {
     switch (signal) {
     case CTRL_C_EVENT:
         log_action("Received CTRL_C signal");
-        running = 0;
+        request_stop();
         return TRUE;
     case CTRL_BREAK_EVENT:
         log_action("Received CTRL_BREAK signal");
-        running = 0;
+        request_stop();
         return TRUE;
     case CTRL_CLOSE_EVENT:
         log_action("Console window closed");
-        running = 0;
+        request_stop();
         return TRUE;
     case CTRL_LOGOFF_EVENT:
         log_action("User logoff detected");
-        running = 0;
+        request_stop();
         return TRUE;
     case CTRL_SHUTDOWN_EVENT:
         log_action("System shutdown detected");
-        running = 0;
+        request_stop();
         return TRUE;
     }
     return FALSE;
@@ -176,7 +293,7 @@ static int try_connect(MQTTClient client, MQTTClient_connectOptions *conn_opts, 
         return rc;
     }
 
-    connected = 1;
+    set_connected(1);
     log_action("Connected to MQTT broker");
     printf("Connected to %s\n", address);
     printf("Status: %s -> %s\n", topic_status, STATUS_ONLINE);
@@ -276,6 +393,7 @@ int main(int argc, char *argv[]) {
 
     printf("pc-control v%s\n", VERSION);
     printf("Device: %s\n", hostname);
+    log_startup();
 
     MQTTClient client;
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
@@ -313,14 +431,16 @@ int main(int argc, char *argv[]) {
 
     int reconnect_delay = RECONNECT_DELAY_BASE_MS;
 
-    while (running) {
-        if (!connected) {
+    while (is_running()) {
+        process_pending_commands();
+
+        if (!is_connected()) {
             rc = try_connect(client, &conn_opts, address);
             if (rc != MQTTCLIENT_SUCCESS) {
                 fprintf(stderr, "Connection attempt failed (%d), retrying in %d ms...\n", rc, reconnect_delay);
 
                 int slept = 0;
-                while (running && slept < reconnect_delay) {
+                while (is_running() && slept < reconnect_delay) {
                     Sleep(100);
                     slept += 100;
                 }
@@ -339,7 +459,7 @@ int main(int argc, char *argv[]) {
     log_action("Shutting down");
 
     /* Publish offline status on graceful shutdown */
-    if (connected) {
+    if (is_connected()) {
         publish_retained(client, topic_status, STATUS_OFFLINE);
         MQTTClient_disconnect(client, 1000);
     }

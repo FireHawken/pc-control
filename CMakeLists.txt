@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(pc-control C)
+project(pc-control C RC)
 
 set(CMAKE_C_STANDARD 11)
 
@@ -19,12 +19,12 @@ set(COMMON_LIBS
 )
 
 # Console version (for debugging/interactive use)
-add_executable(pc-control src/main.c)
+add_executable(pc-control src/main.c src/version.rc)
 target_link_libraries(pc-control ${COMMON_LIBS})
 
 # Hidden version (GUI subsystem, no console window at all)
 # Uses mainCRTStartup entry point to keep regular main() function
-add_executable(pc-control-hidden src/main.c)
+add_executable(pc-control-hidden src/main.c src/version.rc)
 target_compile_definitions(pc-control-hidden PRIVATE HIDDEN_BUILD)
 target_link_libraries(pc-control-hidden ${COMMON_LIBS})
 if(MINGW)
