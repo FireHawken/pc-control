@@ -65,7 +65,7 @@ Features:
 
 ## Version
 
-Update `VERSION` define in `src/main.c` when releasing.
+Update `VERSION` and version number components in `src/version.h` when releasing.
 
 ## Key Windows APIs
 

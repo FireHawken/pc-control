@@ -7,7 +7,8 @@
 #include <powrprof.h>
 #include <MQTTClient.h>
 
-#define VERSION "1.1.0"
+#include "version.h"
+
 #define TOPIC_PREFIX "pc-control"
 #define DEFAULT_PORT "1883"
 #define CLIENT_ID_PREFIX "pc-control-"
@@ -80,6 +81,12 @@ static void log_windows_error(const char *action, DWORD error_code) {
                  action, (unsigned long)error_code);
     }
 
+    log_action(msg);
+}
+
+static void log_startup(void) {
+    char msg[128];
+    snprintf(msg, sizeof(msg), "pc-control v%s started", VERSION);
     log_action(msg);
 }
 
@@ -386,6 +393,7 @@ int main(int argc, char *argv[]) {
 
     printf("pc-control v%s\n", VERSION);
     printf("Device: %s\n", hostname);
+    log_startup();
 
     MQTTClient client;
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;

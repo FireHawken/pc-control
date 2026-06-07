@@ -177,7 +177,7 @@ The project uses GitHub Actions to build and release automatically.
 
 **To release a new version:**
 
-1. Update `VERSION` in `src/main.c`
+1. Update `VERSION` in `src/version.h`
 2. Work on a feature branch, open a PR, and merge to `main`
 3. Tag the merge commit and push the tag:
    ```bash
