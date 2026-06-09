@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <stdarg.h>
 #include <windows.h>
 #include <powrprof.h>
 #include <MQTTClient.h>
@@ -71,6 +72,17 @@ static void log_action(const char *action) {
     }
 }
 
+static void log_actionf(const char *fmt, ...) {
+    char msg[1024];
+    va_list args;
+
+    va_start(args, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, args);
+    va_end(args);
+
+    log_action(msg);
+}
+
 static void log_windows_error(const char *action, DWORD error_code) {
     char msg[256];
 
@@ -88,6 +100,40 @@ static void log_startup(void) {
     char msg[128];
     snprintf(msg, sizeof(msg), "pc-control v%s started", VERSION);
     log_action(msg);
+}
+
+static void get_user_object_name(HANDLE handle, char *buf, size_t buf_size) {
+    DWORD needed = 0;
+
+    if (buf_size == 0) {
+        return;
+    }
+
+    if (handle == NULL ||
+        !GetUserObjectInformationA(handle, UOI_NAME, buf, (DWORD)buf_size, &needed)) {
+        snprintf(buf, buf_size, "<unknown>");
+    }
+}
+
+static void log_runtime_config(const char *address, const char *hostname) {
+    DWORD pid = GetCurrentProcessId();
+    DWORD session_id = 0;
+    char window_station[128];
+    char desktop[128];
+
+    if (!ProcessIdToSessionId(pid, &session_id)) {
+        session_id = (DWORD)-1;
+    }
+
+    get_user_object_name(GetProcessWindowStation(), window_station, sizeof(window_station));
+    get_user_object_name(GetThreadDesktop(GetCurrentThreadId()), desktop, sizeof(desktop));
+
+    log_actionf("Process context: pid=%lu, session_id=%lu, window_station=%s, desktop=%s",
+                (unsigned long)pid, (unsigned long)session_id, window_station, desktop);
+    log_actionf("Runtime config: address=%s, hostname=%s, client_id=%s",
+                address, hostname, client_id);
+    log_actionf("Topics: sleep=%s, monitor_off=%s, status=%s, version=%s",
+                topic_sleep, topic_monitor_off, topic_status, topic_version);
 }
 
 static void sanitize_hostname(char *dest, const char *src, size_t dest_size) {
@@ -116,6 +162,8 @@ static void do_sleep(void) {
     log_action("SLEEP command received - entering sleep mode");
     if (!SetSuspendState(FALSE, FALSE, FALSE)) {
         log_windows_error("SetSuspendState", GetLastError());
+    } else {
+        log_action("SetSuspendState returned success");
     }
 }
 
@@ -127,6 +175,9 @@ static void do_monitor_off(void) {
     if (SendMessageTimeout(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, (LPARAM)2,
                            SMTO_ABORTIFHUNG, MONITOR_POWER_TIMEOUT_MS, &result) == 0) {
         log_windows_error("SendMessageTimeout(SC_MONITORPOWER)", GetLastError());
+    } else {
+        log_actionf("SendMessageTimeout(SC_MONITORPOWER) returned success, result=%lu",
+                    (unsigned long)result);
     }
 }
 
@@ -184,19 +235,96 @@ static int is_valid_command_payload(const MQTTClient_message *msg) {
            payload_token_equals(payload + start, end - start, "yes");
 }
 
-static int should_accept_command_message(const MQTTClient_message *msg) {
-    return msg != NULL && !msg->retained && is_valid_command_payload(msg);
+static int is_empty_payload(const MQTTClient_message *msg) {
+    return msg == NULL || msg->payload == NULL || msg->payloadlen <= 0;
+}
+
+static void format_payload_preview(const MQTTClient_message *msg, char *buf, size_t buf_size) {
+    const unsigned char *payload;
+    size_t len;
+    size_t out = 0;
+
+    if (buf_size == 0) {
+        return;
+    }
+
+    if (msg == NULL || msg->payload == NULL || msg->payloadlen <= 0) {
+        snprintf(buf, buf_size, "<empty>");
+        return;
+    }
+
+    payload = (const unsigned char *)msg->payload;
+    len = (size_t)msg->payloadlen;
+
+    for (size_t i = 0; i < len && out + 1 < buf_size; i++) {
+        unsigned char c = payload[i];
+
+        if (c == '\r' || c == '\n' || c == '\t') {
+            if (out + 2 >= buf_size) {
+                break;
+            }
+            buf[out++] = ' ';
+        } else if (isprint(c)) {
+            buf[out++] = (char)c;
+        } else {
+            buf[out++] = '.';
+        }
+    }
+
+    if (len > out && out + 4 < buf_size) {
+        buf[out++] = '.';
+        buf[out++] = '.';
+        buf[out++] = '.';
+    }
+
+    buf[out] = '\0';
 }
 
 static int message_arrived(void *context, char *topic, int topic_len, MQTTClient_message *msg) {
     (void)context;
     (void)topic_len;
 
-    if (should_accept_command_message(msg)) {
+    char payload_preview[128];
+    int retained = msg != NULL ? msg->retained : 0;
+    int qos = msg != NULL ? msg->qos : 0;
+    int dup = msg != NULL ? msg->dup : 0;
+    int payloadlen = msg != NULL ? msg->payloadlen : 0;
+
+    format_payload_preview(msg, payload_preview, sizeof(payload_preview));
+    log_actionf("MQTT message arrived: topic=%s, payload_len=%d, qos=%d, retained=%d, dup=%d, payload=\"%s\"",
+                topic ? topic : "<null>", payloadlen, qos, retained, dup, payload_preview);
+
+    if (topic == NULL) {
+        log_action("MQTT message ignored: topic is null");
+    } else if (msg == NULL) {
+        log_action("MQTT message ignored: message is null");
+    } else if (msg->retained) {
+        log_action("MQTT command ignored: retained message");
+    } else {
         if (strcmp(topic, topic_sleep) == 0) {
+            if (!is_valid_command_payload(msg)) {
+                log_action("MQTT sleep command ignored: invalid payload");
+                MQTTClient_freeMessage(&msg);
+                MQTTClient_free(topic);
+                return 1;
+            }
+            log_action("MQTT command accepted: sleep queued");
             queue_command(COMMAND_SLEEP);
         } else if (strcmp(topic, topic_monitor_off) == 0) {
+            if (is_empty_payload(msg)) {
+                log_action("MQTT monitor-off command accepted: empty payload trigger");
+            } else if (is_valid_command_payload(msg)) {
+                log_action("MQTT monitor-off command accepted: valid payload trigger");
+            } else {
+                log_action("MQTT monitor-off command ignored: invalid payload");
+                MQTTClient_freeMessage(&msg);
+                MQTTClient_free(topic);
+                return 1;
+            }
+            log_action("MQTT command accepted: monitor-off queued");
             queue_command(COMMAND_MONITOR_OFF);
+        } else {
+            log_actionf("MQTT command ignored: topic does not match subscribed commands (topic=%s)", topic);
         }
     }
 
@@ -211,7 +339,7 @@ static void connection_lost(void *context, char *cause) {
 #ifndef HIDDEN_BUILD
     fprintf(stderr, "Connection lost: %s\n", cause ? cause : "unknown");
 #endif
-    log_action("MQTT connection lost");
+    log_actionf("MQTT connection lost: cause=%s", cause ? cause : "unknown");
 }
 
 static BOOL WINAPI console_handler(DWORD signal) {
@@ -252,32 +380,47 @@ static int publish_retained(MQTTClient client, const char *topic, const char *pa
 static int subscribe_topics(MQTTClient client) {
     int rc;
     if ((rc = MQTTClient_subscribe(client, topic_sleep, QOS)) != MQTTCLIENT_SUCCESS) {
+        log_actionf("MQTT subscribe failed: topic=%s, rc=%d", topic_sleep, rc);
         fprintf(stderr, "Failed to subscribe to %s: %d\n", topic_sleep, rc);
         return rc;
     }
+    log_actionf("MQTT subscribe ok: topic=%s, qos=%d", topic_sleep, QOS);
     if ((rc = MQTTClient_subscribe(client, topic_monitor_off, QOS)) != MQTTCLIENT_SUCCESS) {
+        log_actionf("MQTT subscribe failed: topic=%s, rc=%d", topic_monitor_off, rc);
         fprintf(stderr, "Failed to subscribe to %s: %d\n", topic_monitor_off, rc);
         return rc;
     }
+    log_actionf("MQTT subscribe ok: topic=%s, qos=%d", topic_monitor_off, QOS);
     return MQTTCLIENT_SUCCESS;
 }
 
 static int publish_birth_messages(MQTTClient client) {
     int rc;
     if ((rc = publish_retained(client, topic_status, STATUS_ONLINE)) != MQTTCLIENT_SUCCESS) {
+        log_actionf("MQTT publish failed: topic=%s, payload=%s, retained=1, rc=%d",
+                    topic_status, STATUS_ONLINE, rc);
         fprintf(stderr, "Failed to publish status: %d\n", rc);
         return rc;
     }
+    log_actionf("MQTT publish ok: topic=%s, payload=%s, retained=1",
+                topic_status, STATUS_ONLINE);
     if ((rc = publish_retained(client, topic_version, VERSION)) != MQTTCLIENT_SUCCESS) {
+        log_actionf("MQTT publish failed: topic=%s, payload=%s, retained=1, rc=%d",
+                    topic_version, VERSION, rc);
         fprintf(stderr, "Failed to publish version: %d\n", rc);
         return rc;
     }
+    log_actionf("MQTT publish ok: topic=%s, payload=%s, retained=1",
+                topic_version, VERSION);
     return MQTTCLIENT_SUCCESS;
 }
 
 static int try_connect(MQTTClient client, MQTTClient_connectOptions *conn_opts, const char *address) {
+    log_actionf("MQTT connect attempt: address=%s, client_id=%s, clean_session=%d, keep_alive=%d",
+                address, client_id, conn_opts->cleansession, conn_opts->keepAliveInterval);
     int rc = MQTTClient_connect(client, conn_opts);
     if (rc != MQTTCLIENT_SUCCESS) {
+        log_actionf("MQTT connect failed: rc=%d", rc);
         return rc;
     }
 
@@ -294,7 +437,7 @@ static int try_connect(MQTTClient client, MQTTClient_connectOptions *conn_opts, 
     }
 
     set_connected(1);
-    log_action("Connected to MQTT broker");
+    log_actionf("Connected to MQTT broker: address=%s, client_id=%s", address, client_id);
     printf("Connected to %s\n", address);
     printf("Status: %s -> %s\n", topic_status, STATUS_ONLINE);
     printf("Subscribed to:\n  %s\n  %s\n", topic_sleep, topic_monitor_off);
@@ -394,6 +537,7 @@ int main(int argc, char *argv[]) {
     printf("pc-control v%s\n", VERSION);
     printf("Device: %s\n", hostname);
     log_startup();
+    log_runtime_config(address, hostname);
 
     MQTTClient client;
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;

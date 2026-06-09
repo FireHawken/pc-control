@@ -120,7 +120,7 @@ Topics include the hostname to support multiple PCs:
 | Topic | Type | Description |
 |-------|------|-------------|
 | `pc-control/<hostname>/sleep` | Command | Put PC to sleep (send `1`, `true`, `on`, or `yes`) |
-| `pc-control/<hostname>/monitor-off` | Command | Turn off monitor (send `1`, `true`, `on`, or `yes`) |
+| `pc-control/<hostname>/monitor-off` | Command | Turn off monitor (empty payload is accepted; `1`, `true`, `on`, or `yes` are also accepted) |
 | `pc-control/<hostname>/status` | Status | `online` / `offline` (retained) |
 | `pc-control/<hostname>/version` | Info | Version string, e.g. `1.0.0` (retained) |
 
@@ -154,6 +154,9 @@ mosquitto_pub -h 192.168.1.100 -u myuser -P mypassword -t "pc-control/desktop-pc
 
 # Turn off monitor
 mosquitto_pub -h 192.168.1.100 -u myuser -P mypassword -t "pc-control/desktop-pc/monitor-off" -m "1"
+
+# Turn off monitor with an empty trigger payload
+mosquitto_pub -h 192.168.1.100 -u myuser -P mypassword -t "pc-control/desktop-pc/monitor-off" -n
 
 # Check status (subscribe)
 mosquitto_sub -h 192.168.1.100 -u myuser -P mypassword -t "pc-control/+/status" -v
@@ -194,6 +197,7 @@ The project uses GitHub Actions to build and release automatically.
 
 | Version | Date       | Notes                                                                                                          |
 |---------|------------|---------------------------------------------------------------------------------------------------------------|
+| 1.1.1   | 09.06.2026 | Accept empty MQTT payload as a trigger for `monitor-off` and improve diagnostic logging. |
 | 1.1.0   | 02.03.2026 | Add new, separate "invisible" executable and statically link paho-mqtt, so only 1 file is required for distribution |
 | 1.0.1   | 02.02.2026 | Add logging to file, improved Home Assistant support, status topic (`online`/`offline`) via LWT, monitor off command. |
 | 1.0.0   | 01.02.2026 | Initial release                          |
